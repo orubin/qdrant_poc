@@ -3,7 +3,6 @@ package qdrant
 import (
 	"context"
 	"fmt"
-	"log"
 
 	"github.com/qdrant/go-client/qdrant"
 	"qdrant-poc/pkg/models"
@@ -44,7 +43,7 @@ func (s *Service) CreateCollection(ctx context.Context, name string, size uint64
 }
 
 func (s *Service) CollectionExists(ctx context.Context, name string) (bool, error) {
-	exists, err := s.client.HasCollection(ctx, name)
+	exists, err := s.client.CollectionExists(ctx, name)
 	if err != nil {
 		return false, fmt.Errorf("failed to check collection existence: %w", err)
 	}
@@ -72,10 +71,10 @@ func (s *Service) UpsertPoints(ctx context.Context, collectionName string, point
 }
 
 func (s *Service) Search(ctx context.Context, collectionName string, vector []float32, limit uint64) ([]models.SearchResult, error) {
-	res, err := s.client.Search(ctx, &qdrant.SearchPoints{
+	res, err := s.client.Query(ctx, &qdrant.QueryPoints{
 		CollectionName: collectionName,
-		Vector:         vector,
-		Limit:          limit,
+		Query:          qdrant.NewQuery(vector...),
+		Limit:          &limit,
 		WithPayload:    qdrant.NewWithPayload(true),
 	})
 	if err != nil {

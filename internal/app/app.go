@@ -21,7 +21,7 @@ type App struct {
 	logs      []models.ActionLog
 	logsMu    sync.RWMutex
 	
-	messages  []ui.ChatMessage
+	messages  []models.ChatMessage
 	msgMu     sync.RWMutex
 }
 
@@ -30,7 +30,7 @@ func NewApp(qdrantSvc *qdrant.Service, geminiSvc *gemini.Service) *App {
 		qdrant: qdrantSvc,
 		gemini: geminiSvc,
 		logs:   make([]models.ActionLog, 0),
-		messages: []ui.ChatMessage{
+		messages: []models.ChatMessage{
 			{Role: "assistant", Content: "Hello! I'm your RAG assistant. Ask me anything about the docs we've indexed."},
 		},
 	}
@@ -69,17 +69,12 @@ func (a *App) HandleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.msgMu.Lock()
-	a.messages = append(a.messages, ui.ChatMessage{Role: "user", Content: userMsg})
+	a.messages = append(a.messages, models.ChatMessage{Role: "user", Content: userMsg})
 	a.msgMu.Unlock()
 
 	// Render user message immediately
-	templ.Handler(ui.Message(ui.ChatMessage{Role: "user", Content: userMsg})).ServeHTTP(w, r)
+	templ.Handler(ui.Message(models.ChatMessage{Role: "user", Content: userMsg})).ServeHTTP(w, r)
 
-	// In a real HTMX streaming setup, we'd use OOB or SSE. 
-	// For simplicity, we'll perform the RAG logic and send the assistant response as a separate HTMX swap if needed, 
-	// or just append it to the response here (but user message is already sent).
-	// Actually, HTMX `beforeend` will just append whatever we return.
-	
 	go a.processRAG(userMsg)
 }
 
@@ -122,8 +117,8 @@ func (a *App) processRAG(query string) {
 	
 	contextItems := make([]string, 0)
 	for _, res := range results {
-		if text, ok := res.Payload["text"].(string); ok {
-			contextItems = append(contextItems, text)
+		if textVal, ok := res.Payload["text"]; ok {
+			contextItems = append(contextItems, textVal.GetStringValue())
 		}
 	}
 	a.addLog("Context Found", fmt.Sprintf("Retrieved %d snippets from Qdrant", len(contextItems)))
@@ -137,7 +132,7 @@ func (a *App) processRAG(query string) {
 	}
 	
 	a.msgMu.Lock()
-	a.messages = append(a.messages, ui.ChatMessage{Role: "assistant", Content: response})
+	a.messages = append(a.messages, models.ChatMessage{Role: "assistant", Content: response})
 	a.msgMu.Unlock()
 	
 	a.addLog("RAG Complete", "Assistant response generated successfully")

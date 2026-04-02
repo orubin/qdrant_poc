@@ -1,11 +1,10 @@
 package ui
 
 import (
-	"fmt"
 	"qdrant-poc/pkg/models"
 )
 
-templ ChatWindow(messages []ChatMessage) {
+templ ChatWindow(messages []models.ChatMessage) {
 	<div id="chat-window" class="flex-grow flex flex-col bg-gray-800 rounded-lg shadow-xl border border-gray-700 h-full">
 		<div id="chat-messages" 
 			 hx-get="/chat/messages" 
@@ -25,7 +24,7 @@ templ ChatWindow(messages []ChatMessage) {
 	</div>
 }
 
-templ ChatMessages(messages []ChatMessage) {
+templ ChatMessages(messages []models.ChatMessage) {
 	for _, msg := range messages {
 		@Message(msg)
 	}
@@ -55,6 +54,15 @@ templ LogItem(log models.ActionLog) {
 			<span class="text-gray-600 tabular-nums">{ log.Timestamp }</span>
 		</div>
 		<p class="text-gray-400 leading-tight">{ log.Details }</p>
+	</div>
+}
+
+templ Message(msg models.ChatMessage) {
+	<div class={ "flex flex-col max-w-[80%] " + iif(msg.Role == "user", "self-end", "self-start") }>
+		<div class={ "p-3 rounded-lg text-sm " + iif(msg.Role == "user", "bg-blue-700 text-white", "bg-gray-700 text-gray-200") }>
+			{ msg.Content }
+		</div>
+		<span class="text-[10px] text-gray-500 mt-1 uppercase tracking-wider">{ msg.Role }</span>
 	</div>
 }
 
