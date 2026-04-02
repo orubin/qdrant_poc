@@ -21,7 +21,7 @@ func NewService(ctx context.Context, apiKey string) (*Service, error) {
 	}
 
 	model := client.GenerativeModel("gemini-1.5-flash")
-	embed := client.EmbeddingModel("text-embedding-004")
+	embed := client.EmbeddingModel("embedding-001")
 
 	return &Service{
 		client: client,
