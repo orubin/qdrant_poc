@@ -1,0 +1,75 @@
+package ui
+
+import (
+	"fmt"
+	"qdrant-poc/pkg/models"
+)
+
+templ ChatWindow(messages []ChatMessage) {
+	<div id="chat-window" class="flex-grow flex flex-col bg-gray-800 rounded-lg shadow-xl border border-gray-700 h-full">
+		<div id="chat-messages" 
+			 hx-get="/chat/messages" 
+			 hx-trigger="every 2s" 
+			 hx-swap="innerHTML"
+			 class="flex-grow p-4 overflow-y-auto scroll-container flex flex-col gap-3">
+			for _, msg := range messages {
+				@Message(msg)
+			}
+		</div>
+		<div class="p-4 border-t border-gray-700">
+			<form hx-post="/chat" hx-target="#chat-messages" hx-swap="beforeend" hx-on::after-request="this.reset()" class="flex gap-2">
+				<input type="text" name="message" placeholder="Ask a question about the docs..." class="flex-grow bg-gray-900 border border-gray-600 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 text-white" required />
+				<button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-md font-semibold transition-colors duration-200">Send</button>
+			</form>
+		</div>
+	</div>
+}
+
+templ ChatMessages(messages []ChatMessage) {
+	for _, msg := range messages {
+		@Message(msg)
+	}
+}
+
+templ ActionLogs(logs []models.ActionLog) {
+	<div id="action-logs" class="w-full md:w-80 bg-gray-800 rounded-lg shadow-xl border border-gray-700 flex flex-col overflow-hidden">
+		<div class="bg-gray-700 p-3 flex justify-between items-center border-b border-gray-600">
+			<h2 class="text-sm font-bold uppercase tracking-widest text-blue-300">Action Logs</h2>
+		</div>
+		<div id="logs-list" 
+			 hx-get="/logs" 
+			 hx-trigger="every 1s" 
+			 hx-swap="innerHTML"
+			 class="flex-grow p-3 overflow-y-auto scroll-container flex flex-col gap-2 text-[11px]">
+			for _, log := range logs {
+				@LogItem(log)
+			}
+		</div>
+	</div>
+}
+
+templ LogItem(log models.ActionLog) {
+	<div class="border-l-2 border-blue-500 pl-3 py-1 bg-gray-900 rounded-r-sm hover:bg-gray-850 transition-colors">
+		<div class="flex justify-between items-start mb-0.5">
+			<span class="font-bold text-blue-400">{ log.Action }</span>
+			<span class="text-gray-600 tabular-nums">{ log.Timestamp }</span>
+		</div>
+		<p class="text-gray-400 leading-tight">{ log.Details }</p>
+	</div>
+}
+
+func iif(condition bool, trueVal, falseVal string) string {
+	if condition {
+		return trueVal
+	}
+	return falseVal
+}
+
+templ Dashboard(chatWindow templ.Component, actionLogs templ.Component) {
+	@Layout("Qdrant Go POC Dashboard") {
+		<div class="flex-grow flex flex-col md:flex-row gap-4 h-full max-h-[calc(100vh-140px)]">
+			@chatWindow
+			@actionLogs
+		</div>
+	}
+}
