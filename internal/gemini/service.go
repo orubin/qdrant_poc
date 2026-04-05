@@ -44,12 +44,7 @@ func (s *Service) GenerateEmbedding(ctx context.Context, text string) ([]float32
 }
 
 func (s *Service) GenerateResponse(ctx context.Context, prompt string, contextItems []string) (string, error) {
-	fullPrompt := "You are a helpful assistant. Use the following context to answer the question.\n\n"
-	fullPrompt += "Context:\n"
-	for _, item := range contextItems {
-		fullPrompt += fmt.Sprintf("- %s\n", item)
-	}
-	fullPrompt += fmt.Sprintf("\nQuestion: %s\nAnswer:", prompt)
+	fullPrompt := s.buildFullPrompt(prompt, contextItems)
 
 	resp, err := s.model.GenerateContent(ctx, genai.Text(fullPrompt))
 	if err != nil {
@@ -66,4 +61,19 @@ func (s *Service) GenerateResponse(ctx context.Context, prompt string, contextIt
 	}
 
 	return "", fmt.Errorf("response part is not text")
+}
+
+func (s *Service) GenerateResponseStream(ctx context.Context, prompt string, contextItems []string) *genai.GenerateContentResponseIterator {
+	fullPrompt := s.buildFullPrompt(prompt, contextItems)
+	return s.model.GenerateContentStream(ctx, genai.Text(fullPrompt))
+}
+
+func (s *Service) buildFullPrompt(prompt string, contextItems []string) string {
+	fullPrompt := "You are a helpful assistant. Use the following context to answer the question.\n\n"
+	fullPrompt += "Context:\n"
+	for _, item := range contextItems {
+		fullPrompt += fmt.Sprintf("- %s\n", item)
+	}
+	fullPrompt += fmt.Sprintf("\nQuestion: %s\nAnswer:", prompt)
+	return fullPrompt
 }

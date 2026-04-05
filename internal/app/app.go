@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/a-h/templ"
+	"github.com/google/generative-ai-go/genai"
+	"qdrant-poc/internal/db"
 	"qdrant-poc/internal/ui"
 	"qdrant-poc/pkg/models"
 )
@@ -23,11 +25,13 @@ type QdrantService interface {
 type GeminiService interface {
 	GenerateEmbedding(ctx context.Context, text string) ([]float32, error)
 	GenerateResponse(ctx context.Context, prompt string, contextItems []string) (string, error)
+	GenerateResponseStream(ctx context.Context, prompt string, contextItems []string) *genai.GenerateContentResponseIterator
 }
 
 type App struct {
 	qdrant QdrantService
 	gemini GeminiService
+	db     *db.DB
 	
 	logs      []models.ActionLog
 	logsMu    sync.RWMutex
@@ -39,14 +43,21 @@ type App struct {
 	idMu      sync.Mutex
 }
 
-func NewApp(qdrantSvc QdrantService, geminiSvc GeminiService) *App {
+func NewApp(qdrantSvc QdrantService, geminiSvc GeminiService, database *db.DB) *App {
+	messages, err := database.GetMessages()
+	if err != nil || len(messages) == 0 {
+		messages = []models.ChatMessage{
+			{Role: "assistant", Content: "Hello! I'm your RAG assistant. Ask me anything about the docs we've indexed."},
+		}
+		database.SaveMessage(messages[0].Role, messages[0].Content)
+	}
+
 	return &App{
 		qdrant: qdrantSvc,
 		gemini: geminiSvc,
+		db:     database,
 		logs:   make([]models.ActionLog, 0),
-		messages: []models.ChatMessage{
-			{Role: "assistant", Content: "Hello! I'm your RAG assistant. Ask me anything about the docs we've indexed."},
-		},
+		messages: messages,
 		idCounter: 100, // Start high to avoid collision with initial seed docs (1-5)
 	}
 }
@@ -86,6 +97,7 @@ func (a *App) HandleChat(w http.ResponseWriter, r *http.Request) {
 	a.msgMu.Lock()
 	a.messages = append(a.messages, models.ChatMessage{Role: "user", Content: userMsg})
 	a.msgMu.Unlock()
+	a.db.SaveMessage("user", userMsg)
 
 	// Render user message immediately
 	templ.Handler(ui.Message(models.ChatMessage{Role: "user", Content: userMsg})).ServeHTTP(w, r)
@@ -238,16 +250,42 @@ func (a *App) processRAG(query string) {
 	a.addLog("Context Found", fmt.Sprintf("Retrieved %d snippets from Qdrant", len(contextItems)))
 	
 	// 3. Generate Response
-	a.addLog("Gemini Generate", "Generating final response with context...")
-	response, err := a.gemini.GenerateResponse(ctx, query, contextItems)
-	if err != nil {
-		a.addLog("Error", fmt.Sprintf("Generation failed: %v", err))
-		return
-	}
+	a.addLog("Gemini Generate", "Generating final response with streaming context...")
+	iter := a.gemini.GenerateResponseStream(ctx, query, contextItems)
 	
 	a.msgMu.Lock()
-	a.messages = append(a.messages, models.ChatMessage{Role: "assistant", Content: response})
+	msgIndex := len(a.messages)
+	a.messages = append(a.messages, models.ChatMessage{Role: "assistant", Content: "typing..."})
 	a.msgMu.Unlock()
+
+	var fullResponse strings.Builder
+	firstChunk := true
+	for {
+		resp, err := iter.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			a.addLog("Error", fmt.Sprintf("Streaming failed: %v", err))
+			return
+		}
+
+		if len(resp.Candidates) > 0 {
+			part := resp.Candidates[0].Content.Parts[0]
+			if text, ok := part.(genai.Text); ok {
+				if firstChunk {
+					fullResponse.Reset() // Remove "typing..."
+					firstChunk = false
+				}
+				fullResponse.WriteString(string(text))
+				
+				a.msgMu.Lock()
+				a.messages[msgIndex].Content = fullResponse.String()
+				a.msgMu.Unlock()
+			}
+		}
+	}
 	
-	a.addLog("RAG Complete", "Assistant response generated successfully")
+	a.db.SaveMessage("assistant", fullResponse.String())
+	a.addLog("RAG Complete", "Assistant response generated and persisted")
 }

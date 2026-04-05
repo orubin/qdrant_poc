@@ -55,7 +55,10 @@ func (s *Service) GetCollectionStatus(ctx context.Context, name string) (uint64,
 	if err != nil {
 		return 0, fmt.Errorf("failed to get collection info: %w", err)
 	}
-	return info.PointsCount, nil
+	if info.PointsCount == nil {
+		return 0, nil
+	}
+	return *info.PointsCount, nil
 }
 
 func (s *Service) UpsertPoints(ctx context.Context, collectionName string, points []models.Point) error {

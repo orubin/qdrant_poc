@@ -9,6 +9,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"qdrant-poc/internal/app"
+	"qdrant-poc/internal/db"
 	"qdrant-poc/internal/gemini"
 	"qdrant-poc/internal/qdrant"
 	"qdrant-poc/pkg/models"
@@ -35,6 +36,13 @@ func main() {
 	qPort, _ := strconv.Atoi(qPortStr)
 
 	ctx := context.Background()
+
+	// Initialize DB
+	database, err := db.NewDB("chat.db")
+	if err != nil {
+		log.Fatalf("failed to init db: %v", err)
+	}
+	defer database.Close()
 
 	// Initialize Gemini
 	geminiSvc, err := gemini.NewService(ctx, apiKey)
@@ -95,7 +103,7 @@ func main() {
 		log.Println("Seeding complete.")
 	}
 
-	application := app.NewApp(qdrantSvc, geminiSvc)
+	application := app.NewApp(qdrantSvc, geminiSvc, database)
 
 	http.HandleFunc("/", application.HandleIndex)
 	http.HandleFunc("/chat", application.HandleChat)
