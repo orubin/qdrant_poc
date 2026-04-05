@@ -60,8 +60,19 @@ templ LogItem(log models.ActionLog) {
 
 templ Message(msg models.ChatMessage) {
 	<div class={ "flex flex-col max-w-[80%] " + iif(msg.Role == "user", "self-end", "self-start") }>
-		<div class={ "p-3 rounded-lg text-sm " + iif(msg.Role == "user", "bg-blue-700 text-white", "bg-gray-700 text-gray-200") }>
+		<div class={ "p-3 rounded-lg text-sm " + iif(msg.Role == "user", "bg-blue-700 text-white", "bg-gray-700 text-gray-200 shadow-sm") }>
 			{ msg.Content }
+			if len(msg.Citations) > 0 {
+				<div class="mt-3 pt-2 border-t border-gray-600/50 flex flex-wrap gap-1.5">
+					<span class="text-[10px] text-gray-400 font-bold uppercase tracking-tighter mr-1 w-full">Sources:</span>
+					for _, cite := range msg.Citations {
+						<div class="inline-flex items-center bg-gray-800 border border-gray-600 rounded-full px-2 py-0.5 text-[10px]">
+							<span class="text-blue-400 truncate max-w-[100px]">{ cite.Source }</span>
+							<span class="ml-1 text-gray-500 font-mono">({ fmt.Sprintf("%.2f", cite.Score) })</span>
+						</div>
+					}
+				</div>
+			}
 		</div>
 		<span class="text-[10px] text-gray-500 mt-1 uppercase tracking-wider">{ msg.Role }</span>
 	</div>

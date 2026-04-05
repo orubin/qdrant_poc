@@ -47,8 +47,8 @@ func (m *mockQdrant) GetCollectionStatus(ctx context.Context, collectionName str
 
 type mockGemini struct {
 	generateEmbeddingFunc      func(ctx context.Context, text string) ([]float32, error)
-	generateResponseFunc       func(ctx context.Context, prompt string, contextItems []string) (string, error)
-	generateResponseStreamFunc func(ctx context.Context, prompt string, contextItems []string) *genai.GenerateContentResponseIterator
+	generateResponseFunc       func(ctx context.Context, prompt string, history []models.ChatMessage, contextItems []string) (string, error)
+	generateResponseStreamFunc func(ctx context.Context, prompt string, history []models.ChatMessage, contextItems []string) *genai.GenerateContentResponseIterator
 }
 
 func (m *mockGemini) GenerateEmbedding(ctx context.Context, text string) ([]float32, error) {
@@ -58,16 +58,16 @@ func (m *mockGemini) GenerateEmbedding(ctx context.Context, text string) ([]floa
 	return []float32{0.1, 0.2}, nil
 }
 
-func (m *mockGemini) GenerateResponse(ctx context.Context, prompt string, contextItems []string) (string, error) {
+func (m *mockGemini) GenerateResponse(ctx context.Context, prompt string, history []models.ChatMessage, contextItems []string) (string, error) {
 	if m.generateResponseFunc != nil {
-		return m.generateResponseFunc(ctx, prompt, contextItems)
+		return m.generateResponseFunc(ctx, prompt, history, contextItems)
 	}
 	return "Mocked response", nil
 }
 
-func (m *mockGemini) GenerateResponseStream(ctx context.Context, prompt string, contextItems []string) *genai.GenerateContentResponseIterator {
+func (m *mockGemini) GenerateResponseStream(ctx context.Context, prompt string, history []models.ChatMessage, contextItems []string) *genai.GenerateContentResponseIterator {
 	if m.generateResponseStreamFunc != nil {
-		return m.generateResponseStreamFunc(ctx, prompt, contextItems)
+		return m.generateResponseStreamFunc(ctx, prompt, history, contextItems)
 	}
 	return nil
 }

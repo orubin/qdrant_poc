@@ -22,7 +22,13 @@ type ActionLog struct {
 	Details   string `json:"details"`
 }
 
+type SourceCitation struct {
+	Source string  `json:"source"`
+	Score  float32 `json:"score"`
+}
+
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string           `json:"role"`
+	Content   string           `json:"content"`
+	Citations []SourceCitation `json:"citations,omitempty"`
 }

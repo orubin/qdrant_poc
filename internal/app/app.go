@@ -24,8 +24,8 @@ type QdrantService interface {
 
 type GeminiService interface {
 	GenerateEmbedding(ctx context.Context, text string) ([]float32, error)
-	GenerateResponse(ctx context.Context, prompt string, contextItems []string) (string, error)
-	GenerateResponseStream(ctx context.Context, prompt string, contextItems []string) *genai.GenerateContentResponseIterator
+	GenerateResponse(ctx context.Context, prompt string, history []models.ChatMessage, contextItems []string) (string, error)
+	GenerateResponseStream(ctx context.Context, prompt string, history []models.ChatMessage, contextItems []string) *genai.GenerateContentResponseIterator
 }
 
 type App struct {
@@ -49,7 +49,7 @@ func NewApp(qdrantSvc QdrantService, geminiSvc GeminiService, database *db.DB) *
 		messages = []models.ChatMessage{
 			{Role: "assistant", Content: "Hello! I'm your RAG assistant. Ask me anything about the docs we've indexed."},
 		}
-		database.SaveMessage(messages[0].Role, messages[0].Content)
+		database.SaveMessage(messages[0].Role, messages[0].Content, nil)
 	}
 
 	return &App{
@@ -97,7 +97,7 @@ func (a *App) HandleChat(w http.ResponseWriter, r *http.Request) {
 	a.msgMu.Lock()
 	a.messages = append(a.messages, models.ChatMessage{Role: "user", Content: userMsg})
 	a.msgMu.Unlock()
-	a.db.SaveMessage("user", userMsg)
+	a.db.SaveMessage("user", userMsg, nil)
 
 	// Render user message immediately
 	templ.Handler(ui.Message(models.ChatMessage{Role: "user", Content: userMsg})).ServeHTTP(w, r)
@@ -225,6 +225,17 @@ func (a *App) processRAG(query string) {
 	
 	a.addLog("RAG Start", fmt.Sprintf("Processing query: %s", query))
 	
+	// 0. Fetch History for Memory
+	a.msgMu.RLock()
+	history := make([]models.ChatMessage, 0)
+	// Get last 5 messages for context
+	startIdx := 0
+	if len(a.messages) > 5 {
+		startIdx = len(a.messages) - 5
+	}
+	history = append(history, a.messages[startIdx:len(a.messages)-1]...) // exclude the current user message which is passed as 'query'
+	a.msgMu.RUnlock()
+
 	// 1. Generate Embedding
 	a.addLog("Embedding", "Generating embedding via Gemini...")
 	vector, err := a.gemini.GenerateEmbedding(ctx, query)
@@ -242,20 +253,31 @@ func (a *App) processRAG(query string) {
 	}
 	
 	contextItems := make([]string, 0)
+	citations := make([]models.SourceCitation, 0)
 	for _, res := range results {
 		if textVal, ok := res.Payload["text"]; ok {
-			contextItems = append(contextItems, textVal.GetStringValue())
+			text := textVal.GetStringValue()
+			contextItems = append(contextItems, text)
+			
+			source := "unknown"
+			if srcVal, ok := res.Payload["source"]; ok {
+				source = srcVal.GetStringValue()
+			}
+			citations = append(citations, models.SourceCitation{
+				Source: source,
+				Score:  res.Score,
+			})
 		}
 	}
-	a.addLog("Context Found", fmt.Sprintf("Retrieved %d snippets from Qdrant", len(contextItems)))
+	a.addLog("Context Found", fmt.Sprintf("Retrieved %d snippets (avg score: %.2f)", len(contextItems), calculateAvgScore(citations)))
 	
 	// 3. Generate Response
-	a.addLog("Gemini Generate", "Generating final response with streaming context...")
-	iter := a.gemini.GenerateResponseStream(ctx, query, contextItems)
+	a.addLog("Gemini Generate", "Generating response with memory & context...")
+	iter := a.gemini.GenerateResponseStream(ctx, query, history, contextItems)
 	
 	a.msgMu.Lock()
 	msgIndex := len(a.messages)
-	a.messages = append(a.messages, models.ChatMessage{Role: "assistant", Content: "typing..."})
+	a.messages = append(a.messages, models.ChatMessage{Role: "assistant", Content: "typing...", Citations: citations})
 	a.msgMu.Unlock()
 
 	var fullResponse strings.Builder
@@ -286,6 +308,18 @@ func (a *App) processRAG(query string) {
 		}
 	}
 	
-	a.db.SaveMessage("assistant", fullResponse.String())
+	a.db.SaveMessage("assistant", fullResponse.String(), citations)
 	a.addLog("RAG Complete", "Assistant response generated and persisted")
 }
+
+func calculateAvgScore(citations []models.SourceCitation) float32 {
+	if len(citations) == 0 {
+		return 0
+	}
+	var total float32
+	for _, c := range citations {
+		total += c.Score
+	}
+	return total / float32(len(citations))
+}
+

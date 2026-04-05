@@ -3,8 +3,10 @@ package gemini
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/generative-ai-go/genai"
+	"qdrant-poc/pkg/models"
 	"google.golang.org/api/option"
 )
 
@@ -43,8 +45,8 @@ func (s *Service) GenerateEmbedding(ctx context.Context, text string) ([]float32
 	return res.Embedding.Values, nil
 }
 
-func (s *Service) GenerateResponse(ctx context.Context, prompt string, contextItems []string) (string, error) {
-	fullPrompt := s.buildFullPrompt(prompt, contextItems)
+func (s *Service) GenerateResponse(ctx context.Context, prompt string, history []models.ChatMessage, contextItems []string) (string, error) {
+	fullPrompt := s.buildFullPrompt(prompt, history, contextItems)
 
 	resp, err := s.model.GenerateContent(ctx, genai.Text(fullPrompt))
 	if err != nil {
@@ -63,17 +65,27 @@ func (s *Service) GenerateResponse(ctx context.Context, prompt string, contextIt
 	return "", fmt.Errorf("response part is not text")
 }
 
-func (s *Service) GenerateResponseStream(ctx context.Context, prompt string, contextItems []string) *genai.GenerateContentResponseIterator {
-	fullPrompt := s.buildFullPrompt(prompt, contextItems)
+func (s *Service) GenerateResponseStream(ctx context.Context, prompt string, history []models.ChatMessage, contextItems []string) *genai.GenerateContentResponseIterator {
+	fullPrompt := s.buildFullPrompt(prompt, history, contextItems)
 	return s.model.GenerateContentStream(ctx, genai.Text(fullPrompt))
 }
 
-func (s *Service) buildFullPrompt(prompt string, contextItems []string) string {
-	fullPrompt := "You are a helpful assistant. Use the following context to answer the question.\n\n"
-	fullPrompt += "Context:\n"
-	for _, item := range contextItems {
-		fullPrompt += fmt.Sprintf("- %s\n", item)
+func (s *Service) buildFullPrompt(prompt string, history []models.ChatMessage, contextItems []string) string {
+	var builder strings.Builder
+	builder.WriteString("You are a helpful assistant. Use the following context to answer the question.\n\n")
+	
+	if len(history) > 0 {
+		builder.WriteString("Previous conversation for context:\n")
+		for _, msg := range history {
+			builder.WriteString(fmt.Sprintf("- %s: %s\n", msg.Role, msg.Content))
+		}
+		builder.WriteString("\n")
 	}
-	fullPrompt += fmt.Sprintf("\nQuestion: %s\nAnswer:", prompt)
-	return fullPrompt
+
+	builder.WriteString("Relevant Context from indexed documents:\n")
+	for _, item := range contextItems {
+		builder.WriteString(fmt.Sprintf("- %s\n", item))
+	}
+	builder.WriteString(fmt.Sprintf("\nQuestion: %s\nAnswer:", prompt))
+	return builder.String()
 }
