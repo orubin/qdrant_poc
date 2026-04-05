@@ -50,6 +50,14 @@ func (s *Service) CollectionExists(ctx context.Context, name string) (bool, erro
 	return exists, nil
 }
 
+func (s *Service) GetCollectionStatus(ctx context.Context, name string) (uint64, error) {
+	info, err := s.client.GetCollectionInfo(ctx, name)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get collection info: %w", err)
+	}
+	return info.PointsCount, nil
+}
+
 func (s *Service) UpsertPoints(ctx context.Context, collectionName string, points []models.Point) error {
 	qPoints := make([]*qdrant.PointStruct, len(points))
 	for i, p := range points {

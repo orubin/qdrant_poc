@@ -101,6 +101,8 @@ func main() {
 	http.HandleFunc("/chat", application.HandleChat)
 	http.HandleFunc("/chat/messages", application.HandleChatMessages)
 	http.HandleFunc("/logs", application.HandleLogs)
+	http.HandleFunc("/upload", application.HandleUpload)
+	http.HandleFunc("/status", application.HandleCollectionStatus)
 
 	log.Println("Server starting on :8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

@@ -3,29 +3,43 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/a-h/templ"
-	"qdrant-poc/internal/gemini"
-	"qdrant-poc/internal/qdrant"
 	"qdrant-poc/internal/ui"
 	"qdrant-poc/pkg/models"
 )
 
+type QdrantService interface {
+	Search(ctx context.Context, collectionName string, vector []float32, limit uint64) ([]models.SearchResult, error)
+	UpsertPoints(ctx context.Context, collectionName string, points []models.Point) error
+	GetCollectionStatus(ctx context.Context, collectionName string) (uint64, error)
+}
+
+type GeminiService interface {
+	GenerateEmbedding(ctx context.Context, text string) ([]float32, error)
+	GenerateResponse(ctx context.Context, prompt string, contextItems []string) (string, error)
+}
+
 type App struct {
-	qdrant *qdrant.Service
-	gemini *gemini.Service
+	qdrant QdrantService
+	gemini GeminiService
 	
 	logs      []models.ActionLog
 	logsMu    sync.RWMutex
 	
 	messages  []models.ChatMessage
 	msgMu     sync.RWMutex
+
+	idCounter uint64
+	idMu      sync.Mutex
 }
 
-func NewApp(qdrantSvc *qdrant.Service, geminiSvc *gemini.Service) *App {
+func NewApp(qdrantSvc QdrantService, geminiSvc GeminiService) *App {
 	return &App{
 		qdrant: qdrantSvc,
 		gemini: geminiSvc,
@@ -33,6 +47,7 @@ func NewApp(qdrantSvc *qdrant.Service, geminiSvc *gemini.Service) *App {
 		messages: []models.ChatMessage{
 			{Role: "assistant", Content: "Hello! I'm your RAG assistant. Ask me anything about the docs we've indexed."},
 		},
+		idCounter: 100, // Start high to avoid collision with initial seed docs (1-5)
 	}
 }
 
@@ -92,6 +107,105 @@ func (a *App) HandleLogs(w http.ResponseWriter, r *http.Request) {
 	for _, l := range a.logs {
 		templ.Handler(ui.LogItem(l)).ServeHTTP(w, r)
 	}
+}
+
+func (a *App) HandleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	err := r.ParseMultipartForm(10 << 20) // 10MB limit
+	if err != nil {
+		http.Error(w, "failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("document")
+	if err != nil {
+		http.Error(w, "failed to get file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "failed to read file", http.StatusInternalServerError)
+		return
+	}
+
+	go a.processUpload(header.Filename, string(content))
+
+	w.WriteHeader(http.StatusAccepted)
+	fmt.Fprintf(w, "File %s uploaded and being processed...", header.Filename)
+}
+
+func (a *App) HandleCollectionStatus(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+	count, err := a.qdrant.GetCollectionStatus(ctx, "tech-docs")
+	if err != nil {
+		http.Error(w, "failed to get status", http.StatusInternalServerError)
+		return
+	}
+
+	templ.Handler(ui.CollectionStatus(count)).ServeHTTP(w, r)
+}
+
+func (a *App) processUpload(filename, content string) {
+	ctx := context.Background()
+	a.addLog("Upload Started", fmt.Sprintf("Processing file: %s", filename))
+
+	chunks := a.chunkText(content)
+	a.addLog("Chunking", fmt.Sprintf("Split %s into %d chunks", filename, len(chunks)))
+
+	for i, chunk := range chunks {
+		if strings.TrimSpace(chunk) == "" {
+			continue
+		}
+
+		a.addLog("Embedding", fmt.Sprintf("Generating embedding for chunk %d/%d...", i+1, len(chunks)))
+		vector, err := a.gemini.GenerateEmbedding(ctx, chunk)
+		if err != nil {
+			a.addLog("Error", fmt.Sprintf("Embedding failed for chunk %d: %v", i+1, err))
+			continue
+		}
+
+		a.idMu.Lock()
+		pointID := a.idCounter
+		a.idCounter++
+		a.idMu.Unlock()
+
+		err = a.qdrant.UpsertPoints(ctx, "tech-docs", []models.Point{
+			{
+				ID:     pointID,
+				Vector: vector,
+				Payload: map[string]interface{}{
+					"text":     chunk,
+					"source":   filename,
+					"chunk_id": i,
+				},
+			},
+		})
+		if err != nil {
+			a.addLog("Error", fmt.Sprintf("Indexing failed for chunk %d: %v", i+1, err))
+			continue
+		}
+	}
+
+	a.addLog("Upload Complete", fmt.Sprintf("Finished indexing %s", filename))
+}
+
+func (a *App) chunkText(text string) []string {
+	// Simple paragraph-based chunking
+	paragraphs := strings.Split(text, "\n\n")
+	var chunks []string
+	for _, p := range paragraphs {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			chunks = append(chunks, trimmed)
+		}
+	}
+	return chunks
 }
 
 func (a *App) processRAG(query string) {

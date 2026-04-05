@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"qdrant-poc/pkg/models"
 )
 
@@ -75,9 +76,32 @@ func iif(condition bool, trueVal, falseVal string) string {
 
 templ Dashboard(chatWindow templ.Component, actionLogs templ.Component) {
 	@Layout("Qdrant Go POC Dashboard") {
-		<div class="flex-grow flex flex-col md:flex-row gap-4 h-full max-h-[calc(100vh-140px)]">
-			@chatWindow
-			@actionLogs
+		<div class="flex flex-col gap-6 h-full max-h-[calc(100vh-140px)]">
+			<div class="flex-grow flex flex-col md:flex-row gap-4 overflow-hidden">
+				@chatWindow
+				@actionLogs
+			</div>
+			@KnowledgeSection()
 		</div>
 	}
+}
+
+templ KnowledgeSection() {
+	<div class="bg-gray-800 rounded-lg shadow-xl border border-gray-700 p-4">
+		<div class="flex flex-col md:flex-row justify-between items-center gap-4">
+			<div>
+				<h2 class="text-lg font-bold text-white mb-1">Knowledge Base</h2>
+				<p class="text-sm text-gray-400">Indexed documents: <span id="collection-status" hx-get="/status" hx-trigger="load, every 5s" class="font-mono text-blue-400">Loading...</span></p>
+			</div>
+			<form hx-post="/upload" hx-encoding="multipart/form-data" hx-target="#upload-feedback" hx-on::after-request="this.reset()" class="flex items-center gap-2">
+				<input type="file" name="document" accept=".txt,.md" class="text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer" required />
+				<button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-semibold transition-colors duration-200">Index File</button>
+			</form>
+		</div>
+		<div id="upload-feedback" class="mt-2 text-xs text-blue-300 font-mono italic"></div>
+	</div>
+}
+
+templ CollectionStatus(count uint64) {
+	{ fmt.Sprintf("%d", count) }
 }
